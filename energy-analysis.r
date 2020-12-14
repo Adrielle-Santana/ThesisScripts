@@ -8,112 +8,133 @@ source ("sink.r")
 source ("contrasts.r")
 
 ### * Load system libraries
-load.pkgs (c ("lme4", "lmerTest", "emmeans"))
-load.pkgs ("wavelets")
+load.pkgs (c ("lme4", "lmerTest", "emmeans", "Cairo", "ggplot2", "wavelets"))
 
 ### Directory to save figures
 roldsis.dir <- file.path (figures.dir, "Roldsis-analysis")
-force.dir.create (roldsis.dir)
+force.dir.create (roldsis.dir, clear = TRUE)
 
 ### * Initialize data frames
-unique.df <- data.frame ()
 roi.df <- data.frame ()
 
-### * Create factors: electrodes and wavelet bands
+### * Electrode names
 electrodes <- c ("F7", "F8", "Fz", "TP9", "TP10")
-wav.band <- c ("W9","W8","W7","W6W5")
 
 ### * Load previously computed direction vectors (by RoLDSIS)
-load (file = file.path (results.dir, sprintf("dirVec-%d.dat",eeg.sampfreq)))
+load (file = file.path (results.dir, sprintf ("dirVec-%d.dat", eeg.sampfreq)))
+
+discrepancy.angle <- function (x, y) {
+    nx <- x / sqrt (sum (x ^ 2))
+    ny <- y / sqrt (sum (y ^ 2))
+    acos (sum (nx * ny))
+}
+
+discrepancy.distance <- function (x, y)
+    sqrt (sum ((x - y) ^ 2))
+
+discrepancy.distance.ang <- function (x,y){
+    nx <- x / sqrt (sum (x ^ 2))
+    ny <- y / sqrt (sum (y ^ 2))
+    (acos (sum (nx * ny)) * 180 / pi) * discrepancy.distance (x, y)
+}
+
+discrepancy.diff.norm <- function (x, y)
+    sqrt (sum (x ^ 2)) - sqrt (sum (y ^ 2))
+
+discrepancy.diff.abs <- function (x, y)
+    sum (abs (x)) - sum (abs (y))
+
+discrepancy.diff.norm.times.distance <- function (x, y)
+    discrepancy.diff.norm (x, y) * discrepancy.distance (x, y)
+
+discrepancy <- discrepancy.distance
+
+### * Names of the ROI
+roi.names <- c ("r1.early.theta", "r2.late.theta",
+                "r3.early.alpha", "r4.late.alpha",
+                "r5.early.beta", "r6.late.beta",
+                "r7.early.gamma", "r8.late.gamma")
 
 ### * Fill data frame
-for (ef in experiment.features){
+for (ef in experiment.features) {
 
-    for (et in experiment.types){
+    efAux <- ifelse (ef == "Formantes", "Formants", "VOT")
 
-        for (subj in cohort){
+    for (et in experiment.types) {
 
-            S <- sprintf("subj%d",subj)
+        etAux <- ifelse (et == "Passivo", "Passive", "Active")
 
-            for (reg in c("psy","phy")){
+        for (subj in cohort) {
 
-                for (elt in electrodes) {
+            S <- sprintf ("subj%d", subj)
 
-                    ## ** Select direction vector and convert to wavelet object
-                    aux <- dirVec [[ef]] [[et]] [[S]] [[reg]] [[elt]]
-                    obj <- vec.to.dwt(aux, n=dwt.length)
-                    
-                    ## ** Define ROIs
+            for (elt in electrodes) {
 
-                    #e1 <-  (mean ((obj@W [[9]] [1:2])))
-                    #e2 <-  (mean ((obj@W [[9]] [3])))
-                    #e3 <-   (mean ((obj@W [[8]] [1:3])))
-                    #e4 <-  (mean ((obj@W [[8]] [4:6])))
-                    #e5 <-   (mean ((obj@W [[7]] [1:6])))
-                    #e6 <-  (mean ((obj@W [[7]] [7:12])))
-                    #e7 <- mean (c(mean ((obj@W [[6]] [1:12])),  mean ((obj@W [[5]] [1:24]))))
-                    #e8 <- mean (c(mean ((obj@W [[6]] [13:24])), mean ((obj@W [[5]] [25:46]))))
+                ## ** Select direction vector and convert to wavelet object
+                ## aux <- dirVec [[ef]] [[et]] [[S]] [[reg]] [[elt]]
+                ## obj <- vec.to.dwt(aux, n=dwt.length)
 
-                    e1 <-  (mean ((obj@W [[9]] [1])))
-                    e2 <-  (mean ((obj@W [[9]] [2])))
-                    e3 <-  (mean ((obj@W [[8]] [1:2])))
-                    e4 <-  (mean ((obj@W [[8]] [3:4])))
-                    e5 <-  (mean ((obj@W [[7]] [1:4])))
-                    e6 <-  (mean ((obj@W [[7]] [5:8])))
-                    e7 <-  mean(c(mean ((obj@W [[6]] [1:8])), mean((obj@W [[5]] [1:16]))))
-                    e8 <-  mean(c(mean ((obj@W [[6]] [9:16])), mean ((obj@W [[5]] [17:32]))))
+                aux.phy <- dirVec [[ef]] [[et]] [[S]] $phy [[elt]]
+                obj.phy <- vec.to.dwt (aux.phy, n = dwt.length)
 
+                aux.psy <- dirVec [[ef]] [[et]] [[S]] $psy [[elt]]
+                obj.psy <- vec.to.dwt (aux.psy, n = dwt.length)
 
-                    ## ** Store data in the data frame 1
-                    roi.df <- rbind (roi.df, data.frame(subject = subj,
-                                                        electrode = elt,
-                                                        regression = reg,
-                                                        feature = ef,
-                                                        type = et,
-                                                        roi1 = e1,
-                                                        roi2 = e2,
-                                                        roi3 = e3,
-                                                        roi4 = e4,
-                                                        roi5 = e5,
-                                                        roi6 = e6,
-                                                        roi7 = e7,
-                                                        roi8 = e8))
+                ## ** Store data in the data frame 1
+                tmp.df <- data.frame (subject = subj,
+                                      electrode = elt,
+                                      feature = efAux,
+                                      type = etAux)
 
-                    aux2 <- 1
-                    ## ** Create auxiliary variables to store size and coefficients
-                    ## from each band of the wavelet object (for data frame unique.df)
-                    for(bd in seq(1,length(wav.band))){
+                ## ** Define ROIs
 
-                        for (tm in c ("early", "late")) {
+                roi.val <- c (discrepancy (obj.phy@W [[9]] [1],
+                                           obj.psy@W [[9]] [1]),
+                              discrepancy (obj.phy@W [[9]] [2],
+                                           obj.psy@W [[9]] [2]),
+                              discrepancy (obj.phy@W [[8]] [1:2],
+                                           obj.psy@W [[8]] [1:2]),
+                              discrepancy (obj.phy@W [[8]] [3:4],
+                                           obj.psy@W [[8]] [3:4]),
+                              discrepancy (obj.phy@W [[7]] [1:4],
+                                           obj.psy@W [[7]] [1:4]),
+                              discrepancy (obj.phy@W [[7]] [5:8],
+                                           obj.psy@W [[7]] [5:8]),
+                              discrepancy (obj.phy@W [[6]] [1:8],
+                                           obj.psy@W [[6]] [1:8])
+                                  + discrepancy (obj.phy@W [[5]] [1:16],
+                                                 obj.psy@W [[5]] [1:16]),
+                              discrepancy (obj.phy@W [[6]] [9:16],
+                                           obj.psy@W [[6]] [9:16])
+                                  + discrepancy (obj.phy@W [[5]] [17:32],
+                                                 obj.psy@W [[5]] [17:32]))
 
-                            
-                            e <- eval(parse(text = sprintf("e%d", aux2)))
-                            
-                            aux2 <- aux2+1
+                for (i in seq (1, length (roi.names)))
+                    tmp.df [[roi.names [i]]] <- roi.val [i]
 
-                            ## *** Store data in the data frame 2
-                            unique.df <- rbind (unique.df,
-                                                data.frame(subject = subj,
-                                                           electrode = elt,
-                                                           regression = reg,
-                                                           feature = ef,
-                                                           band = wav.band [bd],
-                                                           type = et,
-                                                           time = tm,
-                                                           var = e))
+                roi.df <- rbind (roi.df, tmp.df)
 
-                        } ## tm
-                    } ## bd
-                } ## elt
-            } ## reg
+                cat (sprintf ("\rFeature: %s  Type: %s  Subject: %s  Electrode: %s",
+                              ef, et, subj, elt))
+                flush (stdout ())
+
+                aux2 <- 1
+
+            } ## elt
         } ## subj
     } ## et
 } ## ef
 
+cat ("\n")
+flush (stdout ())
+
+roi.df$electrode <- as.factor (roi.df$electrode)
+roi.df$feature <- as.factor (roi.df$feature)
+roi.df$type <- as.factor (roi.df$type)
+
 ### One-way contrasts
 contr <- list ("feature" = build.contr (roi.df$feature),
                "type" = build.contr (roi.df$type),
-               "regression" = build.contr(roi.df$regression),
                "electrode" = list ("medial - lateral" = c (-1/4, -1/4, 1, -1/4, -1/4),
                                    "frontal - temporal" = c (1/2, 1/2, 0, -1/2, -1/2),
                                    "left - right" = c (1/2, -1/2, 0, -1/2, 1/2)))
@@ -134,6 +155,10 @@ for (i in seq (1, length (n) - 1)) {
     }
 }
 
+results.filestem <- "energy-analysis"
+sink.open (file.path (results.dir, sprintf ("%s.txt", results.filestem)))
+sink (type = "message")
+
 ### Check contrasts
 banner ("Check contrasts", "*")
 for (n in names (contr)) {
@@ -141,28 +166,28 @@ for (n in names (contr)) {
     check.contrast (contr [[n]])
 }
 
+### * Maximum discrepancy (for y axis of emmip plots)
+min.discrepancy <- 0
+max.discrepancy <- 0.11
+
+### * Aux function for prettifying VD name
+pretty.name <- function (name) {
+    name <- sub ("^r.\\.", "", name)
+    name <- sub ("\\.theta", " θ", name)
+    name <- sub ("\\.alpha", " α", name)
+    name <- sub ("\\.beta", " β", name)
+    name <- sub ("\\.gamma", " γ", name)
+    return (name)
+}
+
 ### * Compute mixed effects models for both data frames
 
-results.filestem <- "energy-analysis"
-sink.open (file.path (results.dir, sprintf ("%s.txt", results.filestem)))
-
-## Complete data frame unique.df
-#banner ("Full model", "*")
-
-#fm <- lmer (var ~ feature * type * electrode * regression * time * band
-#            + (1 | subject), unique.df)
-#step.val <- step (fm)
-#fm.full <- get_model (step.val)
-#show (anova (fm.full))
-#show (ranova (fm.full))
-
-## Data frame separating ROIs
-for (var in c ("roi1", "roi2", "roi3", "roi4", "roi5", "roi6", "roi7", "roi8")) {
+for (var in roi.names) {
 
     banner (var, "*")
 
-    frm <- as.formula (sprintf ("%s ~ feature * type * electrode * regression + (1 | subject)",
-                                var))
+    frm <- as.formula (sprintf ("%s ~ feature * type * electrode + (1 | subject)",
+                                 var))
 
     fm <- lmer (frm, roi.df)
 
@@ -171,28 +196,46 @@ for (var in c ("roi1", "roi2", "roi3", "roi4", "roi5", "roi6", "roi7", "roi8")) 
     show (anova (fm))
 
     ## *** Plot the original data
-    pdf (file.path (roldsis.dir, sprintf ("%s-0full.pdf", var)))
-    print (emmip (fm, regression ~ electrode | feature * type,
-                  CIs = TRUE, ylab = var))
+    CairoPDF (file.path (roldsis.dir, sprintf ("%s-0full.pdf", var)))
+    print (emmip (fm, ~ electrode | feature * type,
+                  CIs = TRUE, ylab = pretty.name (var)))
     dummy <- dev.off ()
+
+    ## Treatment in case there is no significant effect
+    if (all (anova (fm)$Pr > 0.05))
+        next
 
     ## Stepwise selection
     step.val <- step (fm)
-    fm <- get_model (step.val)
+    fm.step <- get_model (step.val)
+
+    ## Check return of step function:
+    ##    if the random effect is significant: returns class 'lmerModLmerTest'
+    ##    if the random effect is not significant: returns a list with 13 elements
+    if (length (fm.step) > 1) {
+        terms <- paste (attr (fm.step$terms, "term.labels"),
+                        sep = " ", collapse = "+")
+        frm <- as.formula (sprintf ("%s ~ %s + (1 | subject)", var, terms))
+        fm.step <- lmer (frm, roi.df)
+    }
 
     ## Random effect
     banner ("Random effect ANOVA table for step-wise selected model", "=")
-    show (ranova (fm))
+    show (ranova (fm.step))
 
     ## ANOVA table
     banner ("ANOVA table for step-wise selected model", "=")
-    aov <- anova (fm)
+    aov <- anova (fm.step)
     show (aov)
 
     ## Check effects
 
     ##  Get names of the variables in the model
     n <- names (attributes (aov) $ hypotheses)
+
+    ## Skip case with no hypotheses
+    if (length (n) == 0)
+        next
 
     ##  Loop over effects
     for (i in seq (1, length (n))){
@@ -213,7 +256,7 @@ for (var in c ("roi1", "roi2", "roi3", "roi4", "roi5", "roi6", "roi7", "roi8")) 
                 frm.em <- as.formula (sprintf ("~ %s", gsub (":", " * ", eff)))
 
                 ##  Test the effect
-                em <- emmeans (fm, frm.em)
+                em <- emmeans (fm.step, frm.em)
                 show (summary (em))
                 show (contrast (em, method = contr [[eff]]))
 
@@ -224,9 +267,15 @@ for (var in c ("roi1", "roi2", "roi3", "roi4", "roi5", "roi6", "roi7", "roi8")) 
                     frm.emmip <- as.formula (sprintf ("~ %s", eff))
                 }
 
-                pdf (file.path (roldsis.dir, sprintf ("%s-%s.pdf", var, eff)))
-                print (emmip (fm, frm.emmip, ylab = var, CIs = TRUE))
+                CairoPDF (file.path (roldsis.dir,
+                                     sprintf ("%s-%s.pdf", var, eff)),
+                          width = 5, height = 4)
+                print (emmip (fm.step, frm.emmip, ylab = pretty.name (var),
+                              CIs = TRUE)
+                       + ylim (min.discrepancy, max.discrepancy))
                 dummy <- dev.off ()
+
+                message (sprintf ("ROI: %s  factor: %s", var, eff))
 
             } ## if eff
         } ## if aov

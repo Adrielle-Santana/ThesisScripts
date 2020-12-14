@@ -28,6 +28,10 @@ for (i in seq (1, nrow (bad.cases))) {
     n1.p2.df <- n1.p2.df [which (! idx), ]
 }
 
+levels(n1.p2.df$feature)[levels(n1.p2.df$feature)=="Formantes"] <- "Formants"
+levels(n1.p2.df$type)[levels(n1.p2.df$type)=="Passivo"] <- "Passive"
+levels(n1.p2.df$type)[levels(n1.p2.df$type)=="Ativo"] <- "Active"
+
 ### * Redirect output to text file
 results.filestem <- "N1-P2-analysis"
 sink.open (file.path (results.dir, sprintf ("%s.txt", results.filestem)))
@@ -35,7 +39,7 @@ sink.open (file.path (results.dir, sprintf ("%s.txt", results.filestem)))
 ### * Build contrasts
 
 ### ** Generate polynomial contrasts for stimulus factor
-poly <- contr.poly (5)
+##poly <- contr.poly (5)
 
 ### ** One-way contrasts
 contr <- list ("feature" = build.contr (n1.p2.df$feature),
@@ -43,10 +47,14 @@ contr <- list ("feature" = build.contr (n1.p2.df$feature),
                "electrode" = list ("medial - lateral" = c (-1/4, -1/4, 1, -1/4, -1/4),
                                    "frontal - temporal" = c (1/2, 1/2, 0, -1/2, -1/2),
                                    "left - right" = c (1/2, -1/2, 0, -1/2, 1/2)),
-               "stimulus" = list ("linear" = poly [, 1],
-                                  "quadratic" = poly [, 2],
-                                  "cubic" = poly [, 3],
-                                  "fourth" = poly [, 4]))
+               "stimulus" = list ("linear" = c(-1, -1/2, 0, 1/2, 1),
+                                  "phy - psy" = c (-1/4, 1/2, 0, -1/2, 1/4),
+                                  "ambiguity" = c (1/4, 1/4, -1, 1/4, 1/4)))
+
+               ##"stimulus" = list ("linear" = poly [, 1],
+               ##                   "quadratic" = poly [, 2],
+               ##                   "cubic" = poly [, 3],
+               ##                   "fourth" = poly [, 4]))
 
 ### ** Two-way contrasts
 n <- names (contr)
@@ -91,8 +99,8 @@ for (var in dep.vars) {
     banner (sprintf ("Dependent variable: %s", var), "*")
 
     ## *** Model formula for the current dependent variable
-    frm <- as.formula (sprintf ("%s  ~ feature * type * electrode * stimulus + (1 | subject)",
-                                var))
+    frm <- as.formula (sprintf ("%s  ~ feature * type * electrode * stimulus + (1 | subject)", var))
+    
     ## *** Fit general model
     fm <- lmer (frm, n1.p2.df)
 
@@ -112,11 +120,10 @@ for (var in dep.vars) {
         ## **** Compensate for different ISI between types of experiment
         ## (Ativo × Passivo)
 
-        ## **** Compute the multiplicative factor between Ativo and Passivo
+        ## **** Compute the multiplicative factor between Active and Passive
         ## Do it for each feature/subject/electrode/stimulus.
-        ## The data frame below contains the ratio Ativo/Passivo for each case.
-        frm.scale <- as.formula (
-            sprintf ("%s  ~ subject * feature * stimulus * electrode", var))
+        ## The data frame below contains the ratio Active/Passive for each case.
+        frm.scale <- as.formula (sprintf ("%s  ~ subject * feature * stimulus * electrode", var))
         df <- aggregate (frm.scale, n1.p2.df, function (x) x [2] / x [1])
 
         ## **** Get the median value and plot the values
@@ -130,7 +137,7 @@ for (var in dep.vars) {
         abline (v = act.pass.factor, col = "red")
 
         ## **** Correction factor for the Ativo cases
-        idx <- which (n1.p2.df$type == "Ativo")
+        idx <- which (n1.p2.df$type == "Active")
         n1.p2.df [[var]] [idx] <- n1.p2.df [[var]] [idx] / act.pass.factor
 
         ## **** Fit the model with “ISI correction”
@@ -195,7 +202,7 @@ for (var in dep.vars) {
                     frm.emmip <- as.formula (gsub (":", " ~ ", eff))
                 else
                     frm.emmip <- as.formula (sprintf ("~ %s", eff))
-                pdf (file.path (n1.p2.fig.dir, sprintf ("%s-%s.pdf", var, eff)))
+                pdf (file.path (n1.p2.fig.dir, sprintf ("%s-%s.pdf", var, eff)), width = 5, height = 4)
                 print (emmip (fm, frm.emmip, ylab = var, CIs = TRUE))
                 dummy <- dev.off ()
 
@@ -212,55 +219,3 @@ sink.close ()
 system (sprintf ("pdftk %s/*.pdf cat output %s/%s.pdf",
                  n1.p2.fig.dir, figures.dir, results.filestem))
 
-### * Bidelman's contrast
-
-### ** Option 1 - compute Bidelman's contrast
-
-df <- subset(n1.p2.df, stimulus==1 | stimulus==3 | stimulus==5)
-##df <- subset(df, feature=="Formantes")
-
-cont <- list("bidelman"=c(1/2, -1, 1/2), "linear"=c(-1, 0, 1))
-cont2 <- list("bidelman"=c(1/2, -1, 1/2, -1/2, 1, -1/2), "linear"=c(-1, 0, 1, 1, 0, -1))
-
-fm <- lmer(P2.N1.boot~electrode*type*feature*stimulus+(1|subject),df)
-step.val <- step (fm)
-fm <- get_model (step.val)
-anova(fm)
-
-emmip(fm, ~stimulus)
-em <- emmeans (fm, ~stimulus)
-contrast (em, method = cont)
-
-emmip(fm, feature~stimulus|type)
-em <- emmeans (fm, ~feature:stimulus)
-contrast (em, method = cont2)
-
-### ** Option 2 - compute Delta-ERP
-
-df <- aggregate (P2.boot ~ subject * feature * type * electrode,
-                 n1.p2.df,
-                 function (x) mean (x [c (1, 5)]) - x [3])
-
-fm <- lmer (P2.boot ~ feature * type * electrode + (1 | subject), df)
-step.val <- step (fm)
-fm <- get_model (step.val)
-
-anova(fm)
-ranova(fm)
-
-emmip (fm, ~ feature, CIs = TRUE)
-
-### For P2
-
-emmip (fm, ~ electrode, CIs = TRUE)
-contr <- list ("medial - lateral" = c (-1/4, -1/4, 1, -1/4, -1/4),
-                                   "frontal - temporal" = c (1/2, 1/2, 0, -1/2, -1/2),
-                                   "left - right" = c (1/2, -1/2, 0, -1/2, 1/2))
-
-em <- emmeans (fm, ~electrode)
-contrast(em, method=contr)
-
-#############################################################
-df <- subset(n1.p2.df, stimulus==1 | stimulus==3 | stimulus==5)
-fm <- lmer(P2.boot~electrode*type*feature*stimulus+(1|subject),df)
-emmip(fm, feature~stimulus|type)

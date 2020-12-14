@@ -95,10 +95,11 @@ for (ef in experiment.features) {
 
         beta <- id.slope[cont,]
 
-       
+
         pdf (file = file.path (fig.roldsis.dir,
                                sprintf ("%s-%s-slope-angle.pdf", ef, et)))
-        plot (beta, ang, pch = 19, las = 1, main = paste(sprintf ("%s %s", ef, et), sprintf("\nr: %g   p.value: %g", round(cor.test(beta,ang)$estimate,3),round(cor.test(beta,ang)$p.value,3))),
+        par(mar=c(5,5,4,1))
+        plot (beta, ang, pch = 19, las = 1, cex=2, cex.main = 2, cex.axis=2, cex.lab=2, main = sprintf("\nr: %g   p.value: %g", round(cor.test(beta,ang)$estimate,3),round(cor.test(beta,ang)$p.value,3)),
                ylab = "phy/psy angle (degrees)", xlab = "slope (%/ms)")
         abline (lm (ang ~ beta))
         dummy <- dev.off ()
