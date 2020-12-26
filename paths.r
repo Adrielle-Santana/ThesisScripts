@@ -23,8 +23,11 @@
 source ("parameters.r")
 
 ### * Force creation of directories
-force.dir.create <- function (dir)
+force.dir.create <- function (dir, clear = FALSE) {
+    if (clear)
+        system (sprintf ("rm -rf %s\n", dir))
     suppressWarnings (dir.create (dir, recursive = TRUE))
+}
 
 ### * Needed directories
 data.dir <- "../data"

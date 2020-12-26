@@ -168,7 +168,7 @@ for (n in names (contr)) {
 
 ### * Maximum discrepancy (for y axis of emmip plots)
 min.discrepancy <- 0
-max.discrepancy <- 0.11
+max.discrepancy <- 0.12
 
 ### * Aux function for prettifying VD name
 pretty.name <- function (name) {
